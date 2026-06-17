@@ -72,7 +72,7 @@ class BaseAgent(ABC):
         }
         combined_prompt = f"{system_prompt}\n\n{user_prompt}"
         payload = {
-            "model": os.environ.get("AIML_MODEL", "meta-llama/Meta-Llama-3.1-13B-Instruct"),
+            "model": os.environ.get("AIML_MODEL", "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo"),
             "messages": [
                 {"role": "user", "content": combined_prompt},
             ],
@@ -87,20 +87,22 @@ class BaseAgent(ABC):
                     logger.error("LLM API error %s: %s", resp.status, text)
                     raise RuntimeError(f"LLM API error: {resp.status}")
 
-                # The model is instructed to return only JSON. Try to parse.
+                # Extract content string from OpenAI-format chat completion envelope.
+                envelope = json.loads(text)
+                content = envelope["choices"][0]["message"]["content"]
+
+                # The model is instructed to return only JSON. Try to parse content.
                 try:
-                    parsed = json.loads(text)
-                    return parsed
+                    return json.loads(content)
                 except json.JSONDecodeError:
-                    # Attempt to extract JSON substring
-                    start = text.find("{")
-                    end = text.rfind("}")
+                    # Attempt to extract JSON substring from content
+                    start = content.find("{")
+                    end = content.rfind("}")
                     if start != -1 and end != -1 and end > start:
                         try:
-                            parsed = json.loads(text[start:end+1])
-                            return parsed
+                            return json.loads(content[start:end + 1])
                         except json.JSONDecodeError:
-                            logger.exception("Failed to parse JSON from LLM response")
+                            logger.exception("Failed to parse JSON from LLM content")
                     raise
         except asyncio.TimeoutError:
             logger.exception("LLM call timed out")
