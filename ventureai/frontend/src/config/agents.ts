@@ -32,11 +32,6 @@ export interface AgentConfig {
   icon: LucideIcon;
   /** The Band message_type this agent publishes. */
   outputType: string;
-  /**
-   * Whether the agent is reachable from the running backend. Only the sourcing
-   * agent is wired into the FastAPI REST surface today; the diligence agents
-   * exist in code but require the Band SDK + per-agent env vars to come online.
-   */
   isAvailable: boolean;
   fields: AgentField[];
 }
@@ -80,7 +75,7 @@ export const AGENTS: AgentConfig[] = [
     capability: "TAM, competitors, timing verdict",
     icon: Globe2,
     outputType: "market_analysis",
-    isAvailable: false,
+    isAvailable: true,
     fields: [
       {
         key: "input",
@@ -100,7 +95,7 @@ export const AGENTS: AgentConfig[] = [
     capability: "Founder scorecard + flags",
     icon: Users,
     outputType: "founder_analysis",
-    isAvailable: false,
+    isAvailable: true,
     fields: [
       {
         key: "input",
@@ -120,7 +115,7 @@ export const AGENTS: AgentConfig[] = [
     capability: "Unit economics + red flags",
     icon: LineChart,
     outputType: "financial_analysis",
-    isAvailable: false,
+    isAvailable: true,
     fields: [
       {
         key: "input",
@@ -140,7 +135,7 @@ export const AGENTS: AgentConfig[] = [
     capability: "Structured failure modes",
     icon: ShieldAlert,
     outputType: "bear_case",
-    isAvailable: false,
+    isAvailable: true,
     fields: [
       {
         key: "input",
@@ -160,7 +155,7 @@ export const AGENTS: AgentConfig[] = [
     capability: "PASS · WATCH · INVEST verdict",
     icon: FileText,
     outputType: "investment_memo",
-    isAvailable: false,
+    isAvailable: true,
     fields: [
       {
         key: "input",

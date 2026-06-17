@@ -1,40 +1,162 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import {
-  Loader2,
-  Lock,
-  CircleAlert,
-  ArrowRight,
-  MapPin,
-  Globe,
-  Layers,
-} from "lucide-react";
+import { Loader2, ArrowRight, Check, CircleAlert } from "lucide-react";
 import { AGENTS, type AgentConfig } from "@/config/agents";
 import { StatusGlyph } from "@/components/ui/status-glyph";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { runSourcing, ApiError, type StartupProfile } from "@/lib/api";
+import {
+  startEvaluation,
+  openPipeline,
+  ApiError,
+  type StartupProfile,
+  type MarketAnalysis,
+  type FounderAnalysis,
+  type FinancialAnalysis,
+  type BearCase,
+  type InvestmentMemo,
+} from "@/lib/api";
+import {
+  ProfileCard,
+  MarketCard,
+  FounderCard,
+  FinancialCard,
+  BearCard,
+  MemoCard,
+} from "@/components/AgentOutputs";
 import { cn } from "@/lib/utils";
 
-type RunState =
-  | { status: "idle" }
-  | { status: "running" }
-  | { status: "done"; profile: StartupProfile }
-  | { status: "error"; message: string };
+/* ------------------------------------------------------------------ */
+/* Types                                                               */
+/* ------------------------------------------------------------------ */
 
-/**
- * The workspace. A three-pane editorial console: the agent index on the left,
- * the active agent's intake in the center, and its output below. Agents that
- * aren't wired into the backend render an elegant "deployment pending" state
- * instead of a dead form.
- */
+type PipelineOutputs = {
+  startup_profile?: StartupProfile;
+  market_analysis?: MarketAnalysis;
+  founder_analysis?: FounderAnalysis;
+  financial_analysis?: FinancialAnalysis;
+  bear_case?: BearCase;
+  investment_memo?: InvestmentMemo;
+};
+
+type PipelineState =
+  | { phase: "idle" }
+  | { phase: "running"; sessionId: string; outputs: PipelineOutputs }
+  | { phase: "done"; sessionId: string; outputs: PipelineOutputs }
+  | { phase: "error"; message: string; outputs: PipelineOutputs };
+
+type RunStatus = "queued" | "running" | "done";
+
+const AGENT_OUTPUT_KEYS: Record<string, keyof PipelineOutputs> = {
+  sourcing: "startup_profile",
+  market: "market_analysis",
+  founder: "founder_analysis",
+  financial: "financial_analysis",
+  bear: "bear_case",
+  memo: "investment_memo",
+};
+
+function deriveRunStatuses(
+  phase: PipelineState["phase"],
+  outputs: PipelineOutputs,
+): Record<string, RunStatus> {
+  if (phase === "idle") return {};
+
+  const has = (k: keyof PipelineOutputs) => outputs[k] !== undefined;
+  const sourcingDone = has("startup_profile");
+  const marketDone = has("market_analysis");
+  const founderDone = has("founder_analysis");
+  const financialDone = has("financial_analysis");
+  const bearDone = has("bear_case");
+  const memoDone = has("investment_memo");
+  const diligenceDone = marketDone && founderDone && financialDone;
+
+  return {
+    sourcing: sourcingDone ? "done" : "running",
+    market: marketDone ? "done" : sourcingDone ? "running" : "queued",
+    founder: founderDone ? "done" : sourcingDone ? "running" : "queued",
+    financial: financialDone ? "done" : sourcingDone ? "running" : "queued",
+    bear: bearDone ? "done" : diligenceDone ? "running" : "queued",
+    memo: memoDone ? "done" : bearDone ? "running" : "queued",
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* AppWorkspace                                                        */
+/* ------------------------------------------------------------------ */
+
 export function AppWorkspace() {
   const [activeId, setActiveId] = useState<string>(AGENTS[0].id);
+  const [input, setInput] = useState("");
+  const [pipeline, setPipeline] = useState<PipelineState>({ phase: "idle" });
+  const wsRef = useRef<{ close(): void } | null>(null);
+  const reduce = useReducedMotion();
+
+  useEffect(() => () => { wsRef.current?.close(); }, []);
+
   const active = AGENTS.find((a) => a.id === activeId)!;
+  const isRunning = pipeline.phase === "running";
+  const outputs: PipelineOutputs =
+    pipeline.phase !== "idle" ? pipeline.outputs : {};
+  const runStatuses = deriveRunStatuses(pipeline.phase, outputs);
+
+  const submit = async () => {
+    if (!input.trim() || isRunning) return;
+    setPipeline({ phase: "running", sessionId: "", outputs: {} });
+    setActiveId("sourcing");
+
+    try {
+      const { session_id } = await startEvaluation(input.trim());
+      setPipeline({ phase: "running", sessionId: session_id, outputs: {} });
+
+      wsRef.current?.close();
+      wsRef.current = openPipeline(session_id, {
+        onMessage: (msg) => {
+          setPipeline((prev) => {
+            if (prev.phase !== "running") return prev;
+            const newOutputs = {
+              ...prev.outputs,
+              [msg.type]: msg.data,
+            } as PipelineOutputs;
+            const isDone = newOutputs.investment_memo !== undefined;
+            return isDone
+              ? { phase: "done", sessionId: prev.sessionId, outputs: newOutputs }
+              : { ...prev, outputs: newOutputs };
+          });
+        },
+        onError: () => {
+          setPipeline((prev) =>
+            prev.phase === "running"
+              ? {
+                  phase: "error",
+                  message: "Connection lost mid-run. Partial results shown below.",
+                  outputs: prev.outputs,
+                }
+              : prev,
+          );
+        },
+        onClose: () => {
+          setPipeline((prev) =>
+            prev.phase === "running"
+              ? { phase: "done", sessionId: prev.sessionId, outputs: prev.outputs }
+              : prev,
+          );
+        },
+      });
+    } catch (err) {
+      const message =
+        err instanceof ApiError && (err.status === 0 || err.status >= 500)
+          ? "The backend isn't responding. Start the FastAPI server on :8000 and try again."
+          : err instanceof Error
+            ? err.message
+            : "Something went wrong.";
+      setPipeline({ phase: "error", message, outputs: {} });
+    }
+  };
 
   return (
     <div className="container py-12 sm:py-16">
-      <header className="mb-10 flex flex-col gap-4 border-b border-ink/10 pb-8 sm:flex-row sm:items-end sm:justify-between">
+      <header className="mb-8 flex flex-col gap-4 border-b border-ink/10 pb-8 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="label-mono mb-3">Workspace — Deal Console</p>
           <h1 className="font-display text-4xl font-bold tracking-tightest sm:text-5xl">
@@ -42,15 +164,85 @@ export function AppWorkspace() {
           </h1>
         </div>
         <p className="max-w-sm font-sans text-sm leading-relaxed text-muted-foreground">
-          Select an agent from the index. Live agents accept input now; the rest
-          are queued for deployment.
+          Paste a company signal and run. All six agents stream results live as
+          they finish.
         </p>
       </header>
 
+      {/* Intake */}
+      <div className="mb-px border border-ink/10 bg-paper p-6">
+        <p className="label-mono mb-4 text-ink/70">Company signal</p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+          <Textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Paste a company name, website, or a few sentences describing the startup…"
+            disabled={isRunning}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+            }}
+            className="min-h-[80px] flex-1"
+          />
+          <div className="flex shrink-0 flex-col gap-3">
+            <Button
+              onClick={submit}
+              disabled={!input.trim() || isRunning}
+              size="lg"
+            >
+              {isRunning ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+                  Running
+                </>
+              ) : (
+                <>
+                  Run committee
+                  <ArrowRight className="h-4 w-4" strokeWidth={1.75} />
+                </>
+              )}
+            </Button>
+            <span className="hidden font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground sm:inline">
+              ⌘ + Enter
+            </span>
+          </div>
+        </div>
+        {pipeline.phase === "error" &&
+          Object.keys(pipeline.outputs).length === 0 && (
+            <div className="mt-4 flex items-start gap-2 text-muted-foreground">
+              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
+              <p className="font-sans text-sm">{pipeline.message}</p>
+            </div>
+          )}
+      </div>
+
+      {/* Two-pane grid */}
       <div className="grid gap-px bg-ink/10 lg:grid-cols-[300px_1fr]">
-        <AgentIndex active={activeId} onSelect={setActiveId} />
+        <AgentIndex
+          active={activeId}
+          onSelect={setActiveId}
+          runStatuses={runStatuses}
+          pipelinePhase={pipeline.phase}
+        />
         <section className="bg-paper p-6 sm:p-10">
-          <AgentPanel key={active.id} agent={active} />
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeId}
+              initial={{ opacity: 0, y: reduce ? 0 : 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <AgentPanel
+                agent={active}
+                outputs={outputs}
+                pipelinePhase={pipeline.phase}
+                runStatus={runStatuses[active.id]}
+                errorMessage={
+                  pipeline.phase === "error" ? pipeline.message : undefined
+                }
+              />
+            </motion.div>
+          </AnimatePresence>
         </section>
       </div>
     </div>
@@ -58,15 +250,19 @@ export function AppWorkspace() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Left rail — the numbered index of agents.                          */
+/* AgentIndex                                                          */
 /* ------------------------------------------------------------------ */
 
 function AgentIndex({
   active,
   onSelect,
+  runStatuses,
+  pipelinePhase,
 }: {
   active: string;
   onSelect: (id: string) => void;
+  runStatuses: Record<string, RunStatus>;
+  pipelinePhase: PipelineState["phase"];
 }) {
   return (
     <nav className="bg-paper" aria-label="Agent index">
@@ -74,6 +270,7 @@ function AgentIndex({
       <ul>
         {AGENTS.map((agent) => {
           const isActive = agent.id === active;
+          const runStatus = runStatuses[agent.id];
           return (
             <li key={agent.id}>
               <button
@@ -99,8 +296,10 @@ function AgentIndex({
                 </span>
                 {isActive ? (
                   <ArrowRight className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                ) : pipelinePhase !== "idle" && runStatus ? (
+                  <RunStatusGlyph status={runStatus} />
                 ) : (
-                  <StatusGlyph available={agent.isAvailable} className="shrink-0" />
+                  <StatusGlyph available className="shrink-0" />
                 )}
               </button>
             </li>
@@ -112,17 +311,59 @@ function AgentIndex({
 }
 
 /* ------------------------------------------------------------------ */
-/* Center/right — the active agent's panel.                           */
+/* Run-status glyph — ephemeral overlay during an active run          */
 /* ------------------------------------------------------------------ */
 
-function AgentPanel({ agent }: { agent: AgentConfig }) {
-  const reduce = useReducedMotion();
+function RunStatusGlyph({ status }: { status: RunStatus }) {
+  if (status === "done") {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-2">
+        <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+        <span className="font-mono text-[10px] uppercase tracking-ledger opacity-70">
+          Done
+        </span>
+      </span>
+    );
+  }
+  if (status === "running") {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-2">
+        <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2} />
+        <span className="font-mono text-[10px] uppercase tracking-ledger opacity-70">
+          Running
+        </span>
+      </span>
+    );
+  }
   return (
-    <motion.div
-      initial={{ opacity: 0, y: reduce ? 0 : 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-    >
+    <span className="inline-flex shrink-0 items-center gap-2">
+      <span aria-hidden className="h-2 w-2 border border-current/40 bg-transparent" />
+      <span className="font-mono text-[10px] uppercase tracking-ledger opacity-70">
+        Queued
+      </span>
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* AgentPanel — header + output area for the selected agent           */
+/* ------------------------------------------------------------------ */
+
+function AgentPanel({
+  agent,
+  outputs,
+  pipelinePhase,
+  runStatus,
+  errorMessage,
+}: {
+  agent: AgentConfig;
+  outputs: PipelineOutputs;
+  pipelinePhase: PipelineState["phase"];
+  runStatus?: RunStatus;
+  errorMessage?: string;
+}) {
+  return (
+    <div>
       <div className="flex flex-col gap-4 border-b border-ink/10 pb-8 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-5">
           <agent.icon className="mt-1 h-8 w-8 shrink-0" strokeWidth={1.3} />
@@ -138,135 +379,132 @@ function AgentPanel({ agent }: { agent: AgentConfig }) {
             </p>
           </div>
         </div>
-        <StatusGlyph available={agent.isAvailable} />
+        {/* Live badge at rest; run-status glyph during/after a run */}
+        {pipelinePhase !== "idle" && runStatus ? (
+          <RunStatusGlyph status={runStatus} />
+        ) : (
+          <StatusGlyph available />
+        )}
       </div>
 
       <div className="pt-8">
-        {agent.isAvailable ? (
-          <LiveAgent agent={agent} />
-        ) : (
-          <PendingState agent={agent} />
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Live agent — real intake + run, wired to the sourcing endpoint.    */
-/* ------------------------------------------------------------------ */
-
-function LiveAgent({ agent }: { agent: AgentConfig }) {
-  const field = agent.fields[0];
-  const [value, setValue] = useState("");
-  const [run, setRun] = useState<RunState>({ status: "idle" });
-
-  const submit = async () => {
-    if (!value.trim() || run.status === "running") return;
-    setRun({ status: "running" });
-    try {
-      const profile = await runSourcing(value.trim());
-      setRun({ status: "done", profile });
-    } catch (err) {
-      const message =
-        err instanceof ApiError && err.status === 0
-          ? "The backend isn't responding. Start the FastAPI server on :8000 and try again."
-          : err instanceof Error
-            ? err.message
-            : "Something went wrong.";
-      setRun({ status: "error", message });
-    }
-  };
-
-  return (
-    <div className="grid gap-10 lg:grid-cols-2">
-      {/* Intake */}
-      <div className="flex flex-col gap-5">
-        <label htmlFor={field.key} className="label-mono text-ink/70">
-          {field.label}
-        </label>
-        <Textarea
-          id={field.key}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder={field.placeholder}
-          disabled={run.status === "running"}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
-          }}
+        <AgentOutput
+          agent={agent}
+          outputs={outputs}
+          pipelinePhase={pipelinePhase}
+          runStatus={runStatus}
+          errorMessage={errorMessage}
         />
-        {field.helper && (
-          <p className="font-sans text-xs leading-relaxed text-muted-foreground">
-            {field.helper}
-          </p>
-        )}
-        <div className="flex items-center gap-4">
-          <Button
-            onClick={submit}
-            disabled={!value.trim() || run.status === "running"}
-            size="lg"
-          >
-            {run.status === "running" ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
-                Sourcing
-              </>
-            ) : (
-              <>
-                Run agent
-                <ArrowRight className="h-4 w-4" strokeWidth={1.75} />
-              </>
-            )}
-          </Button>
-          <span className="hidden font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground sm:inline">
-            ⌘ + Enter
-          </span>
-        </div>
-      </div>
-
-      {/* Output */}
-      <div className="border-l-0 lg:border-l lg:border-ink/10 lg:pl-10">
-        <p className="label-mono mb-5 text-ink/70">Output — {agent.outputType}</p>
-        <AnimatePresence mode="wait">
-          {run.status === "idle" && <OutputIdle key="idle" />}
-          {run.status === "running" && <OutputRunning key="running" />}
-          {run.status === "error" && (
-            <OutputError key="error" message={run.message} />
-          )}
-          {run.status === "done" && (
-            <ProfileCard key="done" profile={run.profile} />
-          )}
-        </AnimatePresence>
       </div>
     </div>
   );
 }
 
-function OutputIdle() {
+/* ------------------------------------------------------------------ */
+/* AgentOutput — dispatches to the right card                         */
+/* ------------------------------------------------------------------ */
+
+function AgentOutput({
+  agent,
+  outputs,
+  pipelinePhase,
+  runStatus,
+  errorMessage,
+}: {
+  agent: AgentConfig;
+  outputs: PipelineOutputs;
+  pipelinePhase: PipelineState["phase"];
+  runStatus?: RunStatus;
+  errorMessage?: string;
+}) {
+  const outputKey = AGENT_OUTPUT_KEYS[agent.id];
+  const output = outputs[outputKey];
+
+  if (pipelinePhase === "idle") {
+    return (
+      <EmptyState
+        headline="Ready"
+        body={`Enter a company signal above and run the committee to generate ${agent.name} analysis.`}
+        dashed
+      />
+    );
+  }
+
+  if (pipelinePhase === "error" && !output) {
+    return (
+      <EmptyState
+        headline="Run failed"
+        body={errorMessage ?? "Something went wrong."}
+        icon={<CircleAlert className="h-4 w-4" strokeWidth={1.75} />}
+      />
+    );
+  }
+
+  if (!output) {
+    if (runStatus === "running") {
+      return <RunningState />;
+    }
+    return (
+      <EmptyState
+        headline="Queued"
+        body="Waiting for upstream agents to complete."
+        dashed
+      />
+    );
+  }
+
+  switch (agent.id) {
+    case "sourcing":
+      return <ProfileCard profile={output as StartupProfile} />;
+    case "market":
+      return <MarketCard analysis={output as MarketAnalysis} />;
+    case "founder":
+      return <FounderCard analysis={output as FounderAnalysis} />;
+    case "financial":
+      return <FinancialCard analysis={output as FinancialAnalysis} />;
+    case "bear":
+      return <BearCard bear={output as BearCase} />;
+    case "memo":
+      return <MemoCard memo={output as InvestmentMemo} />;
+    default:
+      return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* State placeholders                                                  */
+/* ------------------------------------------------------------------ */
+
+function EmptyState({
+  headline,
+  body,
+  dashed = false,
+  icon,
+}: {
+  headline: string;
+  body: string;
+  dashed?: boolean;
+  icon?: React.ReactNode;
+}) {
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="flex min-h-[220px] flex-col items-start justify-center gap-3 border border-dashed border-ink/15 p-8"
+    <div
+      className={cn(
+        "flex min-h-[220px] flex-col items-start justify-center gap-3 p-8",
+        dashed ? "border border-dashed border-ink/15" : "border border-ink/20",
+      )}
     >
-      <p className="font-display text-xl tracking-tight">Awaiting input</p>
-      <p className="font-sans text-sm leading-relaxed text-muted-foreground">
-        Run the agent to produce a structured profile and a first-pass
-        conviction score.
-      </p>
-    </motion.div>
+      {icon && (
+        <div className="flex items-center gap-2 text-muted-foreground">{icon}</div>
+      )}
+      <p className="font-display text-xl tracking-tight">{headline}</p>
+      <p className="font-sans text-sm leading-relaxed text-muted-foreground">{body}</p>
+    </div>
   );
 }
 
-function OutputRunning() {
+function RunningState() {
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="flex min-h-[220px] flex-col gap-4 border border-ink/15 p-8"
-    >
+    <div className="flex min-h-[220px] flex-col gap-4 border border-ink/15 p-8">
       <div className="flex items-center gap-3">
         <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
         <span className="label-mono text-ink/70">Reasoning</span>
@@ -280,171 +518,6 @@ function OutputRunning() {
           />
         ))}
       </div>
-    </motion.div>
-  );
-}
-
-function OutputError({ message }: { message: string }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="flex min-h-[220px] flex-col items-start justify-center gap-3 border border-ink/30 p-8"
-    >
-      <div className="flex items-center gap-2">
-        <CircleAlert className="h-4 w-4" strokeWidth={1.75} />
-        <span className="label-mono text-ink/70">Run failed</span>
-      </div>
-      <p className="font-sans text-sm leading-relaxed text-muted-foreground">
-        {message}
-      </p>
-    </motion.div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Result — a structured startup profile dossier.                     */
-/* ------------------------------------------------------------------ */
-
-function ProfileCard({ profile }: { profile: StartupProfile }) {
-  const meta: { icon: typeof Layers; label: string; value?: string | null }[] = [
-    { icon: Layers, label: "Stage", value: profile.stage },
-    { icon: Globe, label: "Industry", value: profile.industry },
-    { icon: MapPin, label: "Location", value: profile.location },
-  ];
-
-  return (
-    <motion.article
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className="border border-ink/15"
-    >
-      {/* Score header */}
-      <div className="flex items-stretch border-b border-ink/15">
-        <div className="flex w-32 shrink-0 flex-col items-center justify-center border-r border-ink/15 bg-ink py-6 text-paper">
-          <span className="font-display text-5xl font-bold leading-none tracking-tightest">
-            {profile.score}
-          </span>
-          <span className="mt-2 font-mono text-[9px] uppercase tracking-ledger text-paper/60">
-            Conviction
-          </span>
-        </div>
-        <div className="flex flex-col justify-center p-6">
-          <h3 className="font-display text-2xl font-bold leading-tight tracking-tight">
-            {profile.company_name}
-          </h3>
-          {profile.one_liner && (
-            <p className="mt-1 font-sans text-sm leading-relaxed text-muted-foreground">
-              {profile.one_liner}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Meta grid */}
-      <dl className="grid grid-cols-3 border-b border-ink/15">
-        {meta.map(({ icon: Icon, label, value }) => (
-          <div
-            key={label}
-            className="flex flex-col gap-2 border-r border-ink/15 p-4 last:border-r-0"
-          >
-            <dt className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-ledger text-muted-foreground">
-              <Icon className="h-3 w-3" strokeWidth={1.5} />
-              {label}
-            </dt>
-            <dd className="font-sans text-sm text-ink">{value || "—"}</dd>
-          </div>
-        ))}
-      </dl>
-
-      {/* Founders */}
-      {profile.founders.length > 0 && (
-        <div className="border-b border-ink/15 p-5">
-          <p className="label-mono mb-3 text-ink/60">Founders</p>
-          <div className="flex flex-wrap gap-2">
-            {profile.founders.map((f) => (
-              <span
-                key={f}
-                className="border border-ink/20 px-3 py-1 font-mono text-[11px] tracking-wide"
-              >
-                {f}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Summary */}
-      {profile.summary && (
-        <div className="p-5">
-          <p className="label-mono mb-3 text-ink/60">Analyst summary</p>
-          <p className="font-sans text-sm leading-relaxed text-ink/90">
-            {profile.summary}
-          </p>
-        </div>
-      )}
-    </motion.article>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Pending — the elegant empty state for un-deployed agents.          */
-/* ------------------------------------------------------------------ */
-
-function PendingState({ agent }: { agent: AgentConfig }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className="relative overflow-hidden border border-dashed border-ink/20"
-    >
-      {/* Faint diagonal hatch — reads as "under construction" without color. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.04]"
-        style={{
-          backgroundImage:
-            "repeating-linear-gradient(45deg, #FFFFFF 0, #FFFFFF 1px, transparent 1px, transparent 12px)",
-        }}
-      />
-      <div className="relative flex flex-col items-start gap-6 p-10 sm:p-14">
-        <div className="flex items-center gap-3">
-          <Lock className="h-5 w-5" strokeWidth={1.4} />
-          <span className="label-mono text-ink/70">
-            {agent.code} · Deployment pending
-          </span>
-        </div>
-
-        <h3 className="max-w-md font-display text-3xl font-bold leading-tight tracking-tightest">
-          {agent.name} isn't online yet.
-        </h3>
-
-        <p className="max-w-md font-sans text-sm leading-relaxed text-muted-foreground">
-          The logic exists in the backend, but this agent still needs its Band
-          runtime and credentials before it can take input. It will surface here
-          automatically the moment it's deployed.
-        </p>
-
-        <dl className="grid w-full max-w-md grid-cols-1 gap-px border border-ink/10 bg-ink/10 sm:grid-cols-2">
-          <div className="bg-paper p-4">
-            <dt className="label-mono mb-1.5 text-muted-foreground">Will produce</dt>
-            <dd className="font-sans text-sm text-ink">{agent.capability}</dd>
-          </div>
-          <div className="bg-paper p-4">
-            <dt className="label-mono mb-1.5 text-muted-foreground">Event</dt>
-            <dd className="font-mono text-sm text-ink">{agent.outputType}</dd>
-          </div>
-        </dl>
-
-        <Button variant="outline" size="md" disabled>
-          <Lock className="h-3.5 w-3.5" strokeWidth={1.75} />
-          Locked
-        </Button>
-      </div>
-    </motion.div>
+    </div>
   );
 }

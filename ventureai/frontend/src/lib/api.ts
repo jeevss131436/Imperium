@@ -91,3 +91,106 @@ export async function runSourcing(input: string): Promise<StartupProfile> {
   const message = await pollForMessage(session_id, "startup_profile");
   return message.data as unknown as StartupProfile;
 }
+
+/* ------------------------------------------------------------------ */
+/* Agent output types — mirror ventureai/backend/models.py            */
+/* ------------------------------------------------------------------ */
+
+export interface MarketAnalysis {
+  tam?: string | null;
+  market_growth?: string | null;
+  timing_verdict?: string | null;
+  competitors: string[];
+  differentiation?: string | null;
+  market_score: number;
+  key_risks: string[];
+  summary?: string | null;
+}
+
+export interface FounderInfo {
+  name?: string;
+  background?: string;
+  domain_expertise?: string;
+  red_flags?: string[];
+}
+
+export interface FounderAnalysis {
+  founders: FounderInfo[];
+  team_completeness?: string | null;
+  prior_exits: boolean;
+  founder_score: number;
+  summary?: string | null;
+}
+
+export interface FinancialAnalysis {
+  revenue_model?: string | null;
+  unit_economics?: Record<string, string>;
+  raise_amount?: string | null;
+  burn_assessment?: string | null;
+  path_to_profitability?: string | null;
+  financial_score: number;
+  red_flags: string[];
+  summary?: string | null;
+}
+
+export interface BearCase {
+  market_challenges: string[];
+  founder_challenges: string[];
+  financial_challenges: string[];
+  failure_modes: string[];
+  bear_case_score: number;
+  summary?: string | null;
+}
+
+export interface InvestmentMemo {
+  verdict: "PASS" | "INVEST" | "WATCH";
+  confidence_score: number;
+  executive_summary?: string | null;
+  market_score: number;
+  founder_score: number;
+  financial_score: number;
+  bear_case_score: number;
+  overall_score: number;
+  recommendation?: string | null;
+  due_diligence_questions: string[];
+  suggested_valuation_range?: string | null;
+  summary?: string | null;
+}
+
+export interface PipelineHandle {
+  close(): void;
+}
+
+/**
+ * Open a WebSocket to /ws/{sessionId} and stream BandMessage events.
+ * In dev, vite proxies /ws to ws://localhost:8000.
+ * In prod, set VITE_API_URL to the backend base URL (http/https → ws/wss).
+ */
+export function openPipeline(
+  sessionId: string,
+  handlers: {
+    onMessage: (msg: BandMessage) => void;
+    onError?: (e: Event) => void;
+    onClose?: () => void;
+  },
+): PipelineHandle {
+  const apiUrl = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+  const wsUrl = apiUrl
+    ? `${apiUrl.replace(/^http/, "ws")}/ws/${sessionId}`
+    : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws/${sessionId}`;
+
+  const ws = new WebSocket(wsUrl);
+
+  ws.onmessage = (event: MessageEvent) => {
+    try {
+      const msg = JSON.parse(event.data as string) as BandMessage;
+      handlers.onMessage(msg);
+    } catch {
+      // ignore malformed frames
+    }
+  };
+  ws.onerror = (e) => handlers.onError?.(e);
+  ws.onclose = () => handlers.onClose?.();
+
+  return { close: () => ws.close() };
+}

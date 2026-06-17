@@ -11,9 +11,11 @@ import { cn } from "@/lib/utils";
 export function StatusGlyph({
   available,
   className,
+  showLabel = true,
 }: {
   available: boolean;
   className?: string;
+  showLabel?: boolean;
 }) {
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
@@ -26,9 +28,11 @@ export function StatusGlyph({
             : "border border-current/50 bg-transparent",
         )}
       />
-      <span className="font-mono text-[10px] uppercase tracking-ledger opacity-70">
-        {available ? "Live" : "Pending"}
-      </span>
+      {showLabel && (
+        <span className="font-mono text-[10px] uppercase tracking-ledger opacity-70">
+          {available ? "Live" : "Pending"}
+        </span>
+      )}
     </span>
   );
 }
