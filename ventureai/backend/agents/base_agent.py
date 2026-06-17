@@ -108,6 +108,21 @@ class BaseAgent(ABC):
             logger.exception("LLM call timed out")
             raise
 
+    async def notify_band_platform(self, content: str, event_type: str = "thought"):
+        if not self.band_api_key:
+            return
+        try:
+            from thenvoi_rest import AsyncRestClient, ChatEventRequest
+            rest_url = os.environ.get("THENVOI_REST_URL", "https://app.band.ai/")
+            client = AsyncRestClient(api_key=self.band_api_key, base_url=rest_url)
+            await client.agent_api_events.create_agent_chat_event(
+                chat_id=self.room_id,
+                event=ChatEventRequest(content=content, message_type=event_type),
+            )
+            logger.info("%s posted to Band platform", self.name)
+        except Exception:
+            logger.exception("Failed to notify Band platform from %s", self.name)
+
     @abstractmethod
     async def process(self, *args, **kwargs):
         """Implement agent-specific logic. Must publish results to Band."""

@@ -4,9 +4,6 @@ import logging
 import os
 from typing import Optional
 
-from band import AgentRuntime, AgentTools, BandLink, ExecutionContext
-from band.platform.event import MessageEvent
-
 from ventureai.backend.agents.base_agent import BaseAgent
 from ventureai.backend.models import FinancialAnalysis, StartupProfile
 import ventureai.backend.mock_data as mock_data
@@ -18,16 +15,19 @@ class FinancialAgent(BaseAgent):
 
     def __init__(self, name, role, api_key, band_api_key, room_id=None):
         super().__init__(name, role, api_key, band_api_key, room_id)
-        self._band_link: Optional[BandLink] = None
+        self._band_link = None
         self._runtime_task: Optional[asyncio.Task] = None
 
     async def connect_to_band_sdk(self):
         """Connect to the Band platform via the Band SDK and listen for startup_profile events."""
-        agent_id = os.environ.get("FINANCIAL_AGENT_ID")
-        agent_key = os.environ.get("BAND_API_KEY")
-        if not agent_id or not agent_key:
-            logger.warning("FINANCIAL_AGENT_ID or BAND_API_KEY not set — skipping Band SDK connection")
+        from band import AgentRuntime, BandLink
+
+        agent_key = os.environ.get("FINANCIAL_AGENT")
+        if not agent_key:
+            logger.warning("FINANCIAL_AGENT not set — skipping Band SDK connection")
             return
+        parts = agent_key.split("_")
+        agent_id = parts[2] if len(parts) >= 4 else agent_key
 
         self._band_link = BandLink(agent_id=agent_id, api_key=agent_key)
         runtime = AgentRuntime(
@@ -38,8 +38,10 @@ class FinancialAgent(BaseAgent):
         self._runtime_task = asyncio.create_task(runtime.run())
         logger.info("FinancialAgent registered on Band as %s", agent_id)
 
-    async def _on_band_event(self, ctx: ExecutionContext, event):
+    async def _on_band_event(self, ctx, event):
         """Triggered by Band when another agent sends a startup_profile event to this room."""
+        from band import AgentTools
+        from band.platform.event import MessageEvent
         if not isinstance(event, MessageEvent):
             return
         payload = event.payload
@@ -96,6 +98,9 @@ class FinancialAgent(BaseAgent):
                 payload["session_id"] = session_id
             await self.publish_to_band("financial_analysis", payload)
             logger.info("FinancialAgent published financial_analysis for %s", profile.company_name)
+            await self.notify_band_platform(
+                f"[Financial] {profile.company_name} | Revenue Model: {analysis.revenue_model} | Financial Score: {analysis.financial_score}/100\n{analysis.summary}"
+            )
             return analysis
 
         except Exception as e:

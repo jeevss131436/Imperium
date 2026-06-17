@@ -51,6 +51,9 @@ class SourcingAgent(BaseAgent):
 
             await self.publish_to_band("startup_profile", payload)
             logger.info("SourcingAgent published startup_profile for %s", profile.company_name)
+            await self.notify_band_platform(
+                f"[Sourcing] {profile.company_name} identified | Stage: {profile.stage} | Score: {profile.score}/100\n{profile.summary}"
+            )
             return profile
 
         except Exception as e:
