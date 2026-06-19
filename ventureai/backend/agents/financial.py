@@ -70,7 +70,12 @@ class FinancialAgent(BaseAgent):
             "Evaluate this startup's business model and financial prospects. "
             "Assess revenue model viability, unit economics, funding requirements, "
             "burn rate, and path to profitability. Identify any financial red flags. "
-            "Return ONLY valid JSON. No markdown, no preamble, no explanation."
+            "Return ONLY valid JSON. No markdown, no preamble, no explanation.\n\n"
+            "SCORING DISCIPLINE for financial_score (0-100): Be honest and skeptical. "
+            "Most early-stage startups score 30-60 due to unproven unit economics. "
+            "Reserve 61-74 for clear revenue traction, 75-84 for strong monetization, 85+ for exceptional unit economics (rare). "
+            "Unproven revenue, high burn, or unclear path to profitability must pull score below 55. "
+            "Never default to 75, 85, or 90 — use the full range and be specific."
         )
         user_prompt = (
             f"Startup profile:\n{json.dumps(profile.dict(), indent=2)}\n\n"

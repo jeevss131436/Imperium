@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from .band_client import InMemoryBandClient
+from .models import InvestmentMemo
 from .agents.sourcing import SourcingAgent
 from .agents.market import MarketResearchAgent
 from .agents.founder import FounderResearchAgent
@@ -99,10 +100,41 @@ app.add_middleware(
 )
 
 
+async def _publish_debate_msg(session_id: str, speaker: str, content: str, round_num: int, phase: str):
+    await band_client.publish("debate", "debate_message", {
+        "session_id": session_id,
+        "speaker": speaker,
+        "content": content,
+        "round": round_num,
+        "phase": phase,
+    })
+
+
 async def run_pipeline(raw_input: str, session_id: str):
     try:
         # Stage 1: extract startup profile
         profile = await sourcing_agent.process(raw_input, session_id=session_id)
+
+        # Gate: reject nonsensical / non-startup input immediately
+        if profile.company_name.upper().replace(" ", "_") == "INVALID_INPUT":
+            rejection = InvestmentMemo(
+                verdict="PASS",
+                confidence_score=0,
+                executive_summary="Input rejected — the provided text does not describe a startup or company.",
+                market_score=0,
+                founder_score=0,
+                financial_score=0,
+                bear_case_score=0,
+                overall_score=0,
+                recommendation="Provide a startup name, website URL, or a description of the company to run analysis.",
+                due_diligence_questions=[],
+                suggested_valuation_range="N/A",
+                summary="Invalid or insufficient input.",
+            )
+            payload = rejection.dict()
+            payload["session_id"] = session_id
+            await band_client.publish("committee", "investment_memo", payload)
+            return
 
         # Stage 2: parallel analysis
         market, founder, financial = await asyncio.gather(
@@ -119,12 +151,25 @@ async def run_pipeline(raw_input: str, session_id: str):
         challenges = await devil_agent.generate_challenges(market, founder, financial, bear, session_id=session_id)
         debate_log: List[str] = []
 
+        def _fmt_challenges(c: Dict[str, str]) -> str:
+            return (
+                f"[To Market] {c['market_challenge']}\n\n"
+                f"[To Founder] {c['founder_challenge']}\n\n"
+                f"[To Financial] {c['financial_challenge']}"
+            )
+
+        await _publish_debate_msg(session_id, "Devil's Advocate", _fmt_challenges(challenges), 1, "challenge")
+
         for round_num in range(1, MAX_ROUNDS + 1):
             market_rb, founder_rb, financial_rb = await asyncio.gather(
                 market_agent.rebut(challenges["market_challenge"], market, session_id=session_id),
                 founder_agent.rebut(challenges["founder_challenge"], founder, session_id=session_id),
                 financial_agent.rebut(challenges["financial_challenge"], financial, session_id=session_id),
             )
+
+            await _publish_debate_msg(session_id, "Market Research", market_rb, round_num, "rebuttal")
+            await _publish_debate_msg(session_id, "Founder Diligence", founder_rb, round_num, "rebuttal")
+            await _publish_debate_msg(session_id, "Financial Analysis", financial_rb, round_num, "rebuttal")
 
             debate_log.append(
                 f"--- Round {round_num} ---\n"
@@ -139,6 +184,7 @@ async def run_pipeline(raw_input: str, session_id: str):
             decision = await devil_agent.evaluate_round(
                 challenges, market_rb, founder_rb, financial_rb, round_num, session_id=session_id
             )
+            await _publish_debate_msg(session_id, "Devil's Advocate", decision["response"], round_num, "evaluation")
             debate_log.append(f"Devil's verdict on round {round_num}: {decision['response']}")
 
             if not decision["continue"] or round_num == MAX_ROUNDS:
@@ -149,6 +195,9 @@ async def run_pipeline(raw_input: str, session_id: str):
                 "founder_challenge": decision["founder_challenge"],
                 "financial_challenge": decision["financial_challenge"],
             }
+            await _publish_debate_msg(
+                session_id, "Devil's Advocate", _fmt_challenges(challenges), round_num + 1, "challenge"
+            )
 
         debate_summary = "\n\n".join(debate_log)
 

@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Literal, Union
 from pydantic import BaseModel, Field, validator
 
 
@@ -14,6 +14,14 @@ class StartupProfile(BaseModel):
     raw_description: Optional[str] = None
     score: int = Field(0, ge=0, le=100)
     summary: Optional[str] = None
+
+    @validator('founders', each_item=True, pre=True)
+    def coerce_founder_to_str(cls, v):
+        if isinstance(v, dict):
+            name = v.get('name', '')
+            title = v.get('title', v.get('role', ''))
+            return f"{name} ({title})" if title else name or str(v)
+        return str(v) if not isinstance(v, str) else v
 
     class Config:
         from_attributes = True
@@ -71,7 +79,7 @@ class BearCase(BaseModel):
 
 
 class InvestmentMemo(BaseModel):
-    verdict: Literal['PASS', 'INVEST', 'WATCH']
+    verdict: Literal['PASS', 'FUND', 'MONITOR']
     confidence_score: int = Field(0, ge=0, le=100)
     executive_summary: Optional[str] = None
     market_score: int = Field(0, ge=0, le=100)

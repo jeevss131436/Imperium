@@ -22,11 +22,10 @@ function Hero() {
   const reduce = useReducedMotion();
 
   const rise: Variants = {
-    hidden: { opacity: 0, y: reduce ? 0 : 28, filter: "blur(6px)" },
+    hidden: { opacity: 1, y: reduce ? 0 : 28 },
     show: (i: number) => ({
       opacity: 1,
       y: 0,
-      filter: "blur(0px)",
       transition: { duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: i * 0.1 },
     }),
   };
@@ -130,9 +129,8 @@ function Hero() {
 
         {/* Scroll indicator */}
         <motion.div
-          initial={{ opacity: 0 }}
+          initial={{ opacity: 1 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 1.2, duration: 1 }}
           className="mt-20 flex flex-col items-center gap-3 text-muted-foreground"
         >
           <ArrowDown
@@ -179,7 +177,7 @@ function IndexGrid() {
   ];
 
   return (
-    <section id="va-index" className="border-b border-ink/10">
+    <section id="va-index" className="border-b border-paper/10 bg-ink text-paper">
       <div className="container py-24 sm:py-32">
         {/* Centered section header */}
         <motion.div
@@ -190,7 +188,7 @@ function IndexGrid() {
           className="mb-16 flex flex-col items-center gap-5 text-center"
         >
           <span className="label-mono">The committee</span>
-          <h2 className="max-w-[14ch] font-display text-4xl font-bold leading-tight tracking-tightest sm:text-5xl">
+          <h2 className="font-display text-4xl font-bold leading-tight tracking-tightest sm:text-5xl whitespace-nowrap">
             Six specialists, one pipeline
           </h2>
           <p className="max-w-[520px] font-sans text-base leading-relaxed text-muted-foreground">
@@ -204,7 +202,7 @@ function IndexGrid() {
           initial="hidden"
           whileInView="show"
           viewport={{ once: true, margin: "-80px" }}
-          className="grid grid-cols-1 gap-px bg-ink/10 sm:grid-cols-2 lg:grid-cols-3"
+          className="grid grid-cols-1 gap-px bg-paper/10 sm:grid-cols-2 lg:grid-cols-3"
         >
           {AGENTS.map((agent, i) => {
             const Icon = agent.icon;
@@ -212,15 +210,15 @@ function IndexGrid() {
               <motion.li
                 key={agent.id}
                 variants={cell}
-                className={`group relative flex flex-col justify-between gap-10 bg-paper p-8 transition-colors duration-300 hover:bg-ink hover:text-paper sm:min-h-[280px] ${spans[i]}`}
+                className={`group relative flex flex-col justify-between gap-10 bg-ink p-8 transition-colors duration-300 hover:bg-paper hover:text-ink sm:min-h-[280px] ${spans[i]}`}
               >
                 <Link to="/app" className="absolute inset-0" aria-label={`Open ${agent.name} in workspace`} />
                 <div className="flex items-start justify-between">
-                  <span className="font-mono text-xs tracking-[0.2em] text-muted-foreground transition-colors duration-300 group-hover:text-paper/60">
+                  <span className="font-mono text-xs tracking-[0.2em] text-muted-foreground transition-colors duration-300 group-hover:text-ink/60">
                     {agent.code}
                   </span>
                   <Icon
-                    className="h-6 w-6 text-ink transition-colors duration-300 group-hover:text-paper"
+                    className="h-6 w-6 text-paper transition-colors duration-300 group-hover:text-ink"
                     strokeWidth={1.4}
                   />
                 </div>
@@ -232,10 +230,10 @@ function IndexGrid() {
                   <h3 className="font-display text-2xl font-bold tracking-tight">
                     {agent.name}
                   </h3>
-                  <p className="mt-3 font-sans text-sm leading-relaxed text-muted-foreground transition-colors duration-300 group-hover:text-paper/70">
+                  <p className="mt-3 font-sans text-sm leading-relaxed text-muted-foreground transition-colors duration-300 group-hover:text-ink/70">
                     {agent.summary}
                   </p>
-                  <p className="mt-5 font-mono text-[11px] uppercase tracking-[0.18em] text-ink transition-colors duration-300 group-hover:text-paper">
+                  <p className="mt-5 font-mono text-[11px] uppercase tracking-[0.18em] text-paper transition-colors duration-300 group-hover:text-ink">
                     {agent.capability}
                   </p>
                 </div>
@@ -256,7 +254,7 @@ function CallToAction() {
   const reduce = useReducedMotion();
 
   return (
-    <section className="bg-ink text-paper">
+    <section className="bg-paper text-ink">
       <div className="container py-32 sm:py-40">
         <motion.div
           initial={{ opacity: 0, y: reduce ? 0 : 24 }}
@@ -265,16 +263,16 @@ function CallToAction() {
           transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
           className="flex flex-col items-center gap-12 text-center"
         >
-          <span className="label-mono text-paper/50">Begin a memo</span>
+          <span className="label-mono text-ink/50">Begin a memo</span>
           <h2 className="max-w-[12ch] font-display text-[clamp(2.75rem,8vw,7rem)] font-bold leading-[0.95] tracking-tightest">
             Bring a deal.
-            <span className="block italic font-medium text-paper/80">
+            <span className="block italic font-medium text-ink/80">
               Leave with a verdict.
             </span>
           </h2>
           <Link
             to="/app"
-            className="group inline-flex items-center gap-3 border border-paper/30 px-9 py-5 font-mono text-xs uppercase tracking-[0.2em] text-paper transition-all duration-300 ease-out hover:bg-paper hover:text-ink"
+            className="group inline-flex items-center gap-3 border border-ink/30 px-9 py-5 font-mono text-xs uppercase tracking-[0.2em] text-ink transition-all duration-300 ease-out hover:bg-ink hover:text-paper"
           >
             Open the workspace
             <ArrowUpRight

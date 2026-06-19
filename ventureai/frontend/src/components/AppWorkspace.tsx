@@ -1,5 +1,4 @@
-import { useState, useRef, useEffect } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import React, { useState, useRef, useEffect } from "react";
 import { Loader2, ArrowRight, Check, CircleAlert } from "lucide-react";
 import { AGENTS, type AgentConfig } from "@/config/agents";
 import { StatusGlyph } from "@/components/ui/status-glyph";
@@ -9,12 +8,15 @@ import {
   startEvaluation,
   openPipeline,
   ApiError,
+  type BandMessage,
   type StartupProfile,
   type MarketAnalysis,
   type FounderAnalysis,
   type FinancialAnalysis,
   type BearCase,
   type InvestmentMemo,
+  type DebateMessage,
+  type FeedEvent,
 } from "@/lib/api";
 import {
   ProfileCard,
@@ -23,6 +25,7 @@ import {
   FinancialCard,
   BearCard,
   MemoCard,
+  DebateRoom,
 } from "@/components/AgentOutputs";
 import { cn } from "@/lib/utils";
 
@@ -37,7 +40,64 @@ type PipelineOutputs = {
   financial_analysis?: FinancialAnalysis;
   bear_case?: BearCase;
   investment_memo?: InvestmentMemo;
+  feed_events?: FeedEvent[];
 };
+
+function toFeedEvent(msg: BandMessage): FeedEvent | null {
+  const d = msg.data as unknown;
+  switch (msg.type) {
+    case "startup_profile": {
+      const p = d as StartupProfile;
+      const isInvalid = p.company_name.toUpperCase().replace(/\s/g, "_") === "INVALID_INPUT";
+      const name = isInvalid ? "Invalid Input" : p.company_name;
+      return {
+        speaker: "Deal Sourcing",
+        content: isInvalid
+          ? "Input rejected — this does not describe a real startup or company. Score: 0/100."
+          : `Processed ${name}${p.stage ? ` (${p.stage})` : ""}. Conviction score: ${p.score}/100.${p.one_liner ? `\n${p.one_liner}` : ""}`,
+        phase: "pipeline",
+      };
+    }
+    case "market_analysis": {
+      const m = d as MarketAnalysis;
+      return {
+        speaker: "Market Research",
+        content: `Market score: ${m.market_score}/100.${m.tam ? ` TAM: ${m.tam}.` : ""}${m.timing_verdict ? ` ${m.timing_verdict}.` : ""}${m.summary ? `\n${m.summary}` : ""}`,
+        phase: "pipeline",
+      };
+    }
+    case "founder_analysis": {
+      const f = d as FounderAnalysis;
+      return {
+        speaker: "Founder Diligence",
+        content: `Founder score: ${f.founder_score}/100.${f.team_completeness ? ` Team: ${f.team_completeness}.` : ""}${f.summary ? `\n${f.summary}` : ""}`,
+        phase: "pipeline",
+      };
+    }
+    case "financial_analysis": {
+      const fi = d as FinancialAnalysis;
+      return {
+        speaker: "Financial Analysis",
+        content: `Financial score: ${fi.financial_score}/100.${fi.raise_amount ? ` Raise: ${fi.raise_amount}.` : ""}${fi.summary ? `\n${fi.summary}` : ""}`,
+        phase: "pipeline",
+      };
+    }
+    case "bear_case": {
+      const b = d as BearCase;
+      return {
+        speaker: "Devil's Advocate",
+        content: `Bear case complete. Risk score: ${b.bear_case_score}/100.${b.summary ? `\n${b.summary}` : ""}`,
+        phase: "pipeline",
+      };
+    }
+    case "debate_message": {
+      const dm = d as DebateMessage;
+      return { speaker: dm.speaker, content: dm.content, phase: dm.phase, round: dm.round };
+    }
+    default:
+      return null;
+  }
+}
 
 type PipelineState =
   | { phase: "idle" }
@@ -53,6 +113,7 @@ const AGENT_OUTPUT_KEYS: Record<string, keyof PipelineOutputs> = {
   founder: "founder_analysis",
   financial: "financial_analysis",
   bear: "bear_case",
+  debate: "feed_events",
   memo: "investment_memo",
 };
 
@@ -69,6 +130,12 @@ function deriveRunStatuses(
   const financialDone = has("financial_analysis");
   const bearDone = has("bear_case");
   const memoDone = has("investment_memo");
+
+  // Once committee has a verdict the pipeline is complete — all agents done
+  if (memoDone) {
+    return { sourcing: "done", market: "done", founder: "done", financial: "done", bear: "done", debate: "done", memo: "done" };
+  }
+
   const diligenceDone = marketDone && founderDone && financialDone;
 
   return {
@@ -77,7 +144,8 @@ function deriveRunStatuses(
     founder: founderDone ? "done" : sourcingDone ? "running" : "queued",
     financial: financialDone ? "done" : sourcingDone ? "running" : "queued",
     bear: bearDone ? "done" : diligenceDone ? "running" : "queued",
-    memo: memoDone ? "done" : bearDone ? "running" : "queued",
+    debate: "running",
+    memo: bearDone ? "running" : "queued",
   };
 }
 
@@ -90,7 +158,6 @@ export function AppWorkspace() {
   const [input, setInput] = useState("");
   const [pipeline, setPipeline] = useState<PipelineState>({ phase: "idle" });
   const wsRef = useRef<{ close(): void } | null>(null);
-  const reduce = useReducedMotion();
 
   useEffect(() => () => { wsRef.current?.close(); }, []);
 
@@ -114,10 +181,15 @@ export function AppWorkspace() {
         onMessage: (msg) => {
           setPipeline((prev) => {
             if (prev.phase !== "running") return prev;
-            const newOutputs = {
-              ...prev.outputs,
-              [msg.type]: msg.data,
-            } as PipelineOutputs;
+            // Update structured outputs (debate_message only goes to feed)
+            const structured: PipelineOutputs = msg.type !== "debate_message"
+              ? { ...prev.outputs, [msg.type]: msg.data } as PipelineOutputs
+              : prev.outputs;
+            // Append to unified live feed
+            const feedEvent = toFeedEvent(msg);
+            const newOutputs: PipelineOutputs = feedEvent
+              ? { ...structured, feed_events: [...(structured.feed_events ?? []), feedEvent] }
+              : structured;
             const isDone = newOutputs.investment_memo !== undefined;
             return isDone
               ? { phase: "done", sessionId: prev.sessionId, outputs: newOutputs }
@@ -145,7 +217,7 @@ export function AppWorkspace() {
       });
     } catch (err) {
       const message =
-        err instanceof ApiError && (err.status === 0 || err.status >= 500)
+        err instanceof ApiError && (err.status === 0 || (err.status ?? 0) >= 500)
           ? "The backend isn't responding. Start the FastAPI server on :8000 and try again."
           : err instanceof Error
             ? err.message
@@ -224,29 +296,52 @@ export function AppWorkspace() {
           pipelinePhase={pipeline.phase}
         />
         <section className="bg-paper p-6 sm:p-10">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeId}
-              initial={{ opacity: 0, y: reduce ? 0 : 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <AgentPanel
-                agent={active}
-                outputs={outputs}
-                pipelinePhase={pipeline.phase}
-                runStatus={runStatuses[active.id]}
-                errorMessage={
-                  pipeline.phase === "error" ? pipeline.message : undefined
-                }
-              />
-            </motion.div>
-          </AnimatePresence>
+          <ContentErrorBoundary key={activeId}>
+            <AgentPanel
+              agent={active}
+              outputs={outputs}
+              pipelinePhase={pipeline.phase}
+              runStatus={runStatuses[active.id]}
+              errorMessage={
+                pipeline.phase === "error" ? pipeline.message : undefined
+              }
+            />
+          </ContentErrorBoundary>
         </section>
       </div>
     </div>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Content error boundary — prevents a card crash from blanking the   */
+/* entire page. Resets whenever the active agent changes (key prop).  */
+/* ------------------------------------------------------------------ */
+
+class ContentErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex min-h-[220px] flex-col items-start justify-center gap-3 border border-dashed border-ink/15 p-8">
+          <p className="font-display text-xl tracking-tight">Display error</p>
+          <p className="font-sans text-sm leading-relaxed text-muted-foreground">
+            Could not render this agent's output — the data returned by the LLM may be malformed.
+          </p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -417,6 +512,26 @@ function AgentOutput({
   runStatus?: RunStatus;
   errorMessage?: string;
 }) {
+  // Debate room is always rendered once pipeline starts — it fills live
+  if (agent.id === "debate") {
+    if (pipelinePhase === "idle") {
+      return (
+        <EmptyState
+          headline="Ready"
+          body="Enter a company signal above and run the committee to watch the debate unfold live."
+          dashed
+        />
+      );
+    }
+    return (
+      <DebateRoom
+        events={outputs.feed_events ?? []}
+        memo={outputs.investment_memo}
+        runStatus={runStatus}
+      />
+    );
+  }
+
   const outputKey = AGENT_OUTPUT_KEYS[agent.id];
   const output = outputs[outputKey];
 

@@ -17,8 +17,13 @@ class SourcingAgent(BaseAgent):
 
     async def process(self, raw_input: str, session_id: Optional[str] = None) -> StartupProfile:
         system_prompt = (
-            "You are a startup analyst. Extract structured information about this startup from the provided input. "
-            "Return a JSON object matching the StartupProfile schema exactly."
+            "You are a startup analyst. Extract structured information about a startup from the provided input.\n\n"
+            "CRITICAL RULE: If the input is NOT about a real startup, company, product, or business — "
+            "for example if it is random characters, gibberish, a single meaningless word, a test string, "
+            "or completely off-topic — you MUST return ONLY this exact JSON and nothing else:\n"
+            '{"company_name": "INVALID_INPUT", "founders": [], "funding_history": [], "score": 0, '
+            '"summary": "Input does not describe a startup or company."}\n\n'
+            "Only proceed with full extraction if the input clearly describes a real company or startup idea."
         )
 
         user_prompt = (

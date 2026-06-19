@@ -53,19 +53,19 @@ MOCK_FOUNDER_ANALYSIS = FounderAnalysis(
             "name": "Brian Chesky",
             "background": "Industrial design, RISD graduate",
             "domain_expertise": "Product design, brand building, relentless storytelling",
-            "red_flags": "No prior hospitality or marketplace experience at founding",
+            "red_flags": ["No prior hospitality or marketplace experience at founding"],
         },
         {
             "name": "Joe Gebbia",
             "background": "Graphic design, RISD graduate",
             "domain_expertise": "Design thinking, growth hacking, community building",
-            "red_flags": "None significant",
+            "red_flags": [],
         },
         {
             "name": "Nathan Blecharczyk",
             "background": "Computer Science, Harvard University",
             "domain_expertise": "Full-stack engineering, technical architecture, scalability",
-            "red_flags": "None significant",
+            "red_flags": [],
         },
     ],
     team_completeness=(
@@ -145,7 +145,7 @@ MOCK_BEAR_CASE = BearCase(
 )
 
 MOCK_INVESTMENT_MEMO = InvestmentMemo(
-    verdict="INVEST",
+    verdict="FUND",
     confidence_score=82,
     executive_summary=(
         "Airbnb is a category-defining marketplace attacking a $1.2T travel market with unique peer-to-peer supply, "
@@ -172,7 +172,7 @@ MOCK_INVESTMENT_MEMO = InvestmentMemo(
     ],
     suggested_valuation_range="$2.5M–$4M pre-money (seed stage; 15–20x ARR if annualizing current GMV run rate)",
     summary=(
-        "Strong INVEST recommendation. Airbnb has the rare combination of a massive market, defensible network effects, "
+        "Strong FUND recommendation. Airbnb has the rare combination of a massive market, defensible network effects, "
         "excellent unit economics, and a founder team that has demonstrated conviction under pressure. "
         "Regulatory risk is real but not company-ending at this stage."
     ),

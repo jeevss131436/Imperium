@@ -4,6 +4,7 @@ import {
   Users,
   LineChart,
   ShieldAlert,
+  Scale,
   FileText,
   type LucideIcon,
 } from "lucide-react";
@@ -146,13 +147,26 @@ export const AGENTS: AgentConfig[] = [
     ],
   },
   {
-    id: "memo",
+    id: "debate",
     code: "VA-06",
+    name: "Live Debate",
+    role: "Adversarial discussion",
+    summary:
+      "Watch the Devil's Advocate challenge the analysts round by round. Arguments unfold live until a verdict is reached.",
+    capability: "Live multi-round debate feed",
+    icon: Scale,
+    outputType: "debate_message",
+    isAvailable: true,
+    fields: [],
+  },
+  {
+    id: "memo",
+    code: "VA-07",
     name: "Investment Memo",
     role: "Synthesis & verdict",
     summary:
       "Synthesizes every agent into one committee-ready memo: a verdict, a score, and the next questions.",
-    capability: "PASS · WATCH · INVEST verdict",
+    capability: "PASS · MONITOR · FUND verdict",
     icon: FileText,
     outputType: "investment_memo",
     isAvailable: true,

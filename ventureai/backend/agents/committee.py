@@ -121,7 +121,14 @@ class CommitteeAgent(BaseAgent):
             "the Devil's Advocate and the analysts. Weigh the upside against the risks. "
             "Let the debate inform your confidence level and recommendation. "
             "Make a definitive investment decision. "
-            "Return ONLY valid JSON. No markdown, no preamble, no explanation."
+            "Return ONLY valid JSON. No markdown, no preamble, no explanation.\n\n"
+            "SCORING DISCIPLINE — Be calibrated, not generous. "
+            "confidence_score and overall_score: most deals score 30-62. "
+            "Reserve 63-74 for strong deals, 75-84 for compelling ones, 85+ for truly exceptional (rare). "
+            "If any agent scored below 55, that weakness must significantly drag the overall score down. "
+            "Never round to 75, 85, or 90 — pick the precise number the evidence supports. "
+            "VERDICT: 'FUND' only if overall_score >= 68 AND confidence_score >= 65. "
+            "'MONITOR' if 50-67. 'PASS' below 50 or if bear risks are unresolved."
         )
 
         inputs = {
@@ -137,7 +144,7 @@ class CommitteeAgent(BaseAgent):
         user_prompt = (
             f"Diligence inputs:\n{json.dumps(inputs, indent=2)}{debate_section}\n\n"
             "Return ONLY valid JSON with these exact fields: "
-            "verdict (string: exactly 'INVEST', 'PASS', or 'WATCH'), "
+            "verdict (string: exactly 'FUND', 'PASS', or 'MONITOR'), "
             "confidence_score (integer 0-100), "
             "executive_summary (string), "
             "market_score (integer 0-100, taken from the market analysis), "

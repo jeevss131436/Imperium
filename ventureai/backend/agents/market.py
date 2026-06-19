@@ -70,7 +70,12 @@ class MarketResearchAgent(BaseAgent):
             "You are a senior market research analyst at a top-tier VC firm. "
             "Analyze the startup's market opportunity: TAM, growth rate, competitive landscape, "
             "market timing, and how the startup differentiates itself. "
-            "Return ONLY valid JSON. No markdown, no preamble, no explanation."
+            "Return ONLY valid JSON. No markdown, no preamble, no explanation.\n\n"
+            "SCORING DISCIPLINE for market_score (0-100): Be honest and skeptical. "
+            "Most startups score 35-62. Reserve 63-74 for clearly strong markets, "
+            "75-84 for genuinely impressive signals, 85+ for truly exceptional cases (rare). "
+            "Crowded markets, unproven TAM, or weak timing must pull the score below 55. "
+            "Never default to 75, 85, or 90 — use the full range and be specific."
         )
         user_prompt = (
             f"Startup profile:\n{json.dumps(profile.dict(), indent=2)}\n\n"

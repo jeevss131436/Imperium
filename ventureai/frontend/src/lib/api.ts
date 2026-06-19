@@ -143,7 +143,7 @@ export interface BearCase {
 }
 
 export interface InvestmentMemo {
-  verdict: "PASS" | "INVEST" | "WATCH";
+  verdict: "PASS" | "FUND" | "MONITOR";
   confidence_score: number;
   executive_summary?: string | null;
   market_score: number;
@@ -155,6 +155,21 @@ export interface InvestmentMemo {
   due_diligence_questions: string[];
   suggested_valuation_range?: string | null;
   summary?: string | null;
+}
+
+export interface DebateMessage {
+  session_id?: string;
+  speaker: string;
+  content: string;
+  round: number;
+  phase: "challenge" | "rebuttal" | "evaluation";
+}
+
+export interface FeedEvent {
+  speaker: string;
+  content: string;
+  phase: "pipeline" | "challenge" | "rebuttal" | "evaluation";
+  round?: number;
 }
 
 export interface PipelineHandle {

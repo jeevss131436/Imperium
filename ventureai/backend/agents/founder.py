@@ -70,7 +70,12 @@ class FounderResearchAgent(BaseAgent):
             "Evaluate the founding team based on the startup profile provided. "
             "Assess each founder's background, domain expertise, and any red flags. "
             "Also assess overall team completeness and whether any prior exits exist. "
-            "Return ONLY valid JSON. No markdown, no preamble, no explanation."
+            "Return ONLY valid JSON. No markdown, no preamble, no explanation.\n\n"
+            "SCORING DISCIPLINE for founder_score (0-100): Be honest and skeptical. "
+            "Most founding teams score 35-62. Reserve 63-74 for clearly strong teams, "
+            "75-84 for genuinely impressive pedigrees, 85+ for serial founders with proven exits (rare). "
+            "Missing technical co-founder, thin domain expertise, or no track record must pull score below 55. "
+            "Never default to 75, 85, or 90 — use the full range and be specific."
         )
         user_prompt = (
             f"Startup profile:\n{json.dumps(profile.dict(), indent=2)}\n\n"

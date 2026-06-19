@@ -32,10 +32,11 @@ const config: Config = {
         },
       },
       fontFamily: {
-        // Display + body share Nunito; weight carries the hierarchy.
-        display: ["Nunito", "ui-sans-serif", "system-ui", "sans-serif"],
-        sans: ["Nunito", "ui-sans-serif", "system-ui", "sans-serif"],
-        // Utility: terminal/ledger data labels.
+        // Editorial serif for headings — authoritative, finance-grade.
+        display: ['"DM Serif Display"', "Georgia", "serif"],
+        // Clean professional sans for body and UI text.
+        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        // Terminal/ledger data labels.
         mono: ['"IBM Plex Mono"', "ui-monospace", "SFMono-Regular", "monospace"],
       },
       letterSpacing: {
